@@ -100,6 +100,7 @@ Xenia's emulation is accurate to the spec, but the perceived quality issue might
 ### 5. Potential Solutions (Ordered by Impact)
 
 #### 5.1 Low Impact / Safe Changes
+- ✅ **IMPLEMENTED:** Fix scalar conversion path to use proper rounding instead of truncation
 - Add codec options to `avcodec_open2()` for quality optimization
 - Document expected audio quality limitations
 - Add audio quality information to FAQ
@@ -114,7 +115,30 @@ Xenia's emulation is accurate to the spec, but the perceived quality issue might
 - Implement custom XMA decoder (significant effort)
 - Add upsampling or quality enhancement filters (may cause timing issues)
 
-### 6. Code References
+### 6. Implemented Improvements
+
+#### Float→Int16 Conversion Rounding Fix
+**File:** `src/xenia/apu/xma_context.cc`
+
+**Problem:** The scalar (non-SIMD) conversion path was using truncation (`static_cast<int16_t>`) while the SIMD path uses proper rounding (`_mm_cvtps_epi32`). This inconsistency could cause subtle quality differences and truncation can introduce more distortion than rounding.
+
+**Solution:** Changed the scalar path to use `std::lrintf()` which provides proper rounding (banker's rounding) consistent with the SIMD path. This ensures:
+- Consistent behavior across SIMD and scalar code paths
+- Reduced quantization noise compared to truncation
+- Better distribution of rounding errors
+
+**Code change:**
+```cpp
+// Before:
+auto sample = static_cast<int16_t>(scaled_sample);
+
+// After:  
+auto sample = static_cast<int16_t>(std::lrintf(scaled_sample));
+```
+
+This is a safe, low-impact change that improves audio quality without affecting compatibility or performance.
+
+### 7. Code References
 
 Key files for audio quality:
 - `src/xenia/apu/xma_context.cc` - Sample format conversion
@@ -123,7 +147,7 @@ Key files for audio quality:
 - `src/xenia/apu/xaudio2/xaudio2_audio_driver.cc` - Windows audio output
 - `src/xenia/apu/audio_system.cc` - Audio subsystem management
 
-### 7. Conclusion
+### 8. Conclusion
 
 The "compressed" audio quality is likely a combination of:
 1. Inherent limitations of 16-bit audio (Xbox 360 spec)
